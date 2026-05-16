@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Motion Lab AI</title>
+
+<style>
+body{
+    font-family:sans-serif;
+    text-align:center;
+    background:#f4f6f9;
+    margin:0;
+    padding:20px;
+}
+
+h1{
+    color:#1e88e5;
+}
+
+.box{
+    background:white;
+    padding:20px;
+    border-radius:15px;
+    max-width:500px;
+    margin:auto;
+    box-shadow:0 0 10px rgba(0,0,0,0.1);
+}
+
+select,button{
+    width:90%;
+    padding:12px;
+    margin:10px;
+    font-size:16px;
+    border-radius:10px;
+}
+
+button{
+    background:#1e88e5;
+    color:white;
+    border:none;
+}
+
+video,canvas{
+    width:320px;
+    border-radius:15px;
+    margin-top:10px;
+}
+
+#feedback{
+    font-size:24px;
+    font-weight:bold;
+    margin-top:15px;
+}
+
+#exercise{
+    font-size:20px;
+    margin-top:20px;
+    color:#222;
+}
+
+#detail{
+    margin-top:10px;
+    color:#555;
+}
+</style>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+
+</head>
+<body>
+
+<div class="box">
+
+<h1>🏥 Motion Lab AI</h1>
+
+<h3>신체 부위</h3>
+<select id="part">
+<option>목</option>
+<option>어깨</option>
+<option>허리</option>
+<option>무릎</option>
+<option>발목</option>
+<option>손목</option>
+<option>고관절</option>
+</select>
+
+<h3>통증 성격</h3>
+<select id="pain">
+<option>뻐근함</option>
+<option>찌름</option>
+<option>당김</option>
+</select>
+
+<h3>통증 상황</h3>
+<select id="situation">
+<option>움직일때</option>
+<option>가만히</option>
+<option>특정동작</option>
+</select>
+
+<button onclick="recommendExercise()">운동 추천받기</button>
+
+<div id="exercise"></div>
+<div id="detail"></div>
+
+<hr>
+
+<video id="video" autoplay playsinline></video>
+<canvas id="canvas"></canvas>
+
+<br>
+
+<button onclick="startCamera()">카메라 시작</button>
+
+<div id="feedback">실시간 자세 분석 대기중</div>
+
+</div>
+
+<script>
+
+// =====================
+// 운동 데이터
+// =====================
+
+const rehabData = {
+
+"목-뻐근함-움직일때":"목 스트레칭",
+"목-뻐근함-가만히":"턱 당기기",
+"목-뻐근함-특정동작":"목 회전 운동",
+
+"목-찌름-움직일때":"목 안정화 운동",
+"목-찌름-가만히":"심부목근 강화",
+"목-찌름-특정동작":"승모근 이완",
+
+"목-당김-움직일때":"목 측면 스트레칭",
+"목-당김-가만히":"견갑 안정화",
+"목-당김-특정동작":"경추 가동성 운동",
+
+"어깨-뻐근함-움직일때":"밴드 외회전",
+"어깨-뻐근함-가만히":"어깨 스트레칭",
+"어깨-뻐근함-특정동작":"벽 슬라이드",
+
+"어깨-찌름-움직일때":"회전근개 강화",
+"어깨-찌름-가만히":"견갑골 조이기",
+"어깨-찌름-특정동작":"팔 들어올리기",
+
+"어깨-당김-움직일때":"후면 어깨 스트레칭",
+"어깨-당김-가만히":"어깨 안정화",
+"어깨-당김-특정동작":"밴드 당기기",
+
+"허리-뻐근함-움직일때":"버드독",
+"허리-뻐근함-가만히":"무릎 당기기",
+"허리-뻐근함-특정동작":"브릿지",
+
+"허리-찌름-움직일때":"코어 안정화",
+"허리-찌름-가만히":"골반 틸트",
+"허리-찌름-특정동작":"맥켄지 운동",
+
+"허리-당김-움직일때":"햄스트링 스트레칭",
+"허리-당김-가만히":"허리 회전 스트레칭",
+"허리-당김-특정동작":"고양이 자세",
+
+"무릎-뻐근함-움직일때":"벽 스쿼트",
+"무릎-뻐근함-가만히":"무릎 펴기 운동",
+"무릎-뻐근함-특정동작":"런지",
+
+"무릎-찌름-움직일때":"대퇴사두근 강화",
+"무릎-찌름-가만히":"레그레이즈",
+"무릎-찌름-특정동작":"계단 오르기",
+
+"무릎-당김-움직일때":"햄스트링 강화",
+"무릎-당김-가만히":"종아리 스트레칭",
+"무릎-당김-특정동작":"균형 스쿼트",
+
+"발목-뻐근함-움직일때":"발목 돌리기",
+"발목-뻐근함-가만히":"종아리 스트레칭",
+"발목-뻐근함-특정동작":"발끝 들기",
+
+"발목-찌름-움직일때":"한발 균형잡기",
+"발목-찌름-가만히":"밴드 발목운동",
+"발목-찌름-특정동작":"점프 착지",
+
+"발목-당김-움직일때":"뒤꿈치 들기",
+"발목-당김-가만히":"발목 안정화",
+"발목-당김-특정동작":"사이드 스텝",
+
+"손목-뻐근함-움직일때":"손목 스트레칭",
+"손목-뻐근함-가만히":"손목 돌리기",
+"손목-뻐근함-특정동작":"악력 강화",
+
+"손목-찌름-움직일때":"손목 신전 운동",
+"손목-찌름-가만히":"손가락 벌리기",
+"손목-찌름-특정동작":"신경 글라이딩",
+
+"손목-당김-움직일때":"손목 굴곡 운동",
+"손목-당김-가만히":"손목 안정화",
+"손목-당김-특정동작":"고무밴드 운동",
+
+"고관절-뻐근함-움직일때":"클램쉘",
+"고관절-뻐근함-가만히":"고관절 스트레칭",
+"고관절-뻐근함-특정동작":"브릿지",
+
+"고관절-찌름-움직일때":"힙 어브덕션",
+"고관절-찌름-가만히":"힙 익스텐션",
+"고관절-찌름-특정동작":"사이드 레그레이즈",
+
+"고관절-당김-움직일때":"고관절 회전 운동",
+"고관절-당김-가만히":"골반 안정화",
+"고관절-당김-특정동작":"한발 스탠드"
+
+};
+
+let currentExercise = "";
+
+// =====================
+// 운동 추천
+// =====================
+
+function recommendExercise(){
+
+    const part =
+    document.getElementById("part").value;
+
+    const pain =
+    document.getElementById("pain").value;
+
+    const situation =
+    document.getElementById("situation").value;
+
+    const key =
+    `${part}-${pain}-${situation}`;
+
+    currentExercise =
+    rehabData[key];
+
+    document.getElementById("exercise").innerHTML =
+    `추천 운동 : <b>${currentExercise}</b>`;
+
+    document.getElementById("detail").innerHTML =
+    `${part} / ${pain} / ${situation} 상태에 맞춘 운동입니다`;
+}
+
+// =====================
+// 카메라 시작
+// =====================
+
+const video =
+document.getElementById("video");
+
+const canvas =
+document.getElementById("canvas");
+
+const ctx =
+canvas.getContext("2d");
+
+function startCamera(){
+
+    const camera = new Camera(video,{
+        onFrame: async ()=>{
+            await pose.send({image:video});
+        },
+        width:320,
+        height:320
+    });
+
+    camera.start();
+}
+
+// =====================
+// MediaPipe Pose
+// =====================
+
+const pose = new Pose({
+    locateFile:(file)=>
+    `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`
+});
+
+pose.setOptions({
+    modelComplexity:1,
+    smoothLandmarks:true,
+    minDetectionConfidence:0.5,
+    minTrackingConfidence:0.5
+});
+
+// =====================
+// 실시간 균형 평가
+// =====================
+
+pose.onResults(results=>{
+
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+
+    ctx.drawImage(
+        results.image,
+        0,
+        0,
+        canvas.width,
+        canvas.height
+    );
+
+    if(!results.poseLandmarks) return;
+
+    let lm = results.poseLandmarks;
+
+    let leftShoulder = lm[11];
+    let rightShoulder = lm[12];
+
+    let leftHip = lm[23];
+    let rightHip = lm[24];
+
+    // 어깨 균형
+    let shoulderDiff =
+    Math.abs(leftShoulder.y - rightShoulder.y);
+
+    // 골반 균형
+    let hipDiff =
+    Math.abs(leftHip.y - rightHip.y);
+
+    // 전체 균형 점수
+    let totalBalance =
+    shoulderDiff + hipDiff;
+
+    let feedback = "";
+
+    if(totalBalance < 0.05){
+
+        feedback =
+        "🟢 좋음 - 자세 균형 매우 안정적";
+
+    }
+    else if(totalBalance < 0.12){
+
+        feedback =
+        "🟡 보통 - 약간의 균형 차이";
+
+    }
+    else{
+
+        feedback =
+        "🔴 나쁨 - 자세 불균형 발생";
+
+    }
+
+    document.getElementById("feedback").innerHTML =
+    feedback;
+
+});
+
+</script>
+
+</body>
+</html>
